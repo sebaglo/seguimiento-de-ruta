@@ -1,75 +1,74 @@
 package com.example.seguimientorutas;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.widget.EditText;
-import android.widget.TextView;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Spinner;
+import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.maps.CameraUpdate;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.Polyline;
+import com.google.android.gms.maps.model.PolylineOptions;
 
-public class MainActivity extends AppCompatActivity implements OnMapReadyCallback, GoogleMap.OnMapClickListener, GoogleMap.OnMapLongClickListener {
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationRequest;
 
-    EditText txtLatitud, txtLongitud;
-    GoogleMap mMap;
-    private FusedLocationProviderClient fusedLocationProviderClient;
-    private TextView locationTv;
-    private static final int REQUEST_CODE_LOCATION_PERMISSION = 1;
+public class MainActivity extends AppCompatActivity implements OnMapReadyCallback, GoogleMap.OnMapClickListener {
+
+    private GoogleMap mMap;
+    private LatLng startLocation = null; // Ubicación inicial
+    private LatLng endLocation = null;   // Ubicación final
+    private Polyline currentRoute = null; // Línea de la ruta
+    private FusedLocationProviderClient fusedLocationProviderClient; // Cliente de ubicación
+    private LocationCallback locationCallback; // Callback para recibir la ubicación
+    private LatLng currentLocation; // Ubicación actual
+    private Spinner mapTypeSpinner; // Spinner para cambiar tipo de mapa
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
-        //Ubicacion en tiempo real
-        locationTv=findViewById(R.id.locationtv);
-        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
-
-        getCurrentLocation();
-
-        //latitudes y longitudes
-        txtLatitud=findViewById(R.id.txtLatitud);
-        txtLongitud=findViewById(R.id.txtLongitud);
-
-        //maps
+        // Inicializar el mapa
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
-        mapFragment.getMapAsync(this);
-    };
-
-    //Validaciones de permisos
-    private void getCurrentLocation(){
-        if(ActivityCompat.checkSelfPermission(
-          this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
-                && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
-        ){
-        ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION},
-                REQUEST_CODE_LOCATION_PERMISSION
-        );
-        return;
+        if (mapFragment != null) {
+            mapFragment.getMapAsync(this);
         }
 
-        fusedLocationProviderClient.getLastLocation().addOnSuccessListener(this,location -> {
-            if(location != null){
-                locationTv.setText("latitud: "+ location.getLatitude() + "\n" + "longitud: " + location.getLongitude());
-            } else {
-                locationTv.setText("No se pudo Obtener la ubicacion");
+        // Inicializar el cliente de ubicación
+        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
+        startLocationUpdates();
+
+        // Inicializar el Spinner para seleccionar el tipo de mapa
+        mapTypeSpinner = findViewById(R.id.mapTypeSpinner);
+        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this,
+                R.array.map_types_options, android.R.layout.simple_spinner_item);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        mapTypeSpinner.setAdapter(adapter);
+
+        // Establecer el listener para el Spinner
+        mapTypeSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parentView, View view, int position, long id) {
+                String selectedItem = (String) parentView.getItemAtPosition(position); // Hacer un cast explícito a String
+                changeMapType(selectedItem);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parentView) {
+                // Aquí puedes definir un comportamiento si no se selecciona nada
             }
         });
     }
@@ -77,44 +76,118 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     @Override
     public void onMapReady(@NonNull GoogleMap googleMap) {
         mMap = googleMap;
-        this.mMap.setOnMapClickListener(this);
-        this.mMap.setOnMapLongClickListener(this);
 
-        LatLng chile = new LatLng(-30.5921655,-71.246963813);
-        mMap.addMarker(new MarkerOptions().position(chile).title("Chile"));
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(chile));
+        // Establecer el tipo de mapa predeterminado
+        mMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
+
+        // Establecer el evento de clic en el mapa
+        mMap.setOnMapClickListener(this);
+
+        // Centrar el mapa en una ubicación predeterminada (puedes cambiarla por la ubicación de inicio)
+        LatLng defaultLocation = new LatLng(-30.5986, -71.2006); // Ovalle, Chile
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(defaultLocation, 15));
     }
 
     @Override
     public void onMapClick(@NonNull LatLng latLng) {
-        txtLatitud.setText(""+latLng.latitude);
-        txtLongitud.setText(""+latLng.longitude);
+        if (startLocation == null) {
+            // Si no hay una ubicación de inicio, se marca la primera ubicación como el inicio
+            startLocation = latLng;
+            mMap.addMarker(new MarkerOptions().position(startLocation).title("Inicio de la ruta"));
+            Toast.makeText(this, "Ruta iniciada", Toast.LENGTH_SHORT).show();
+        } else if (endLocation == null) {
+            // Si ya hay un inicio, se marca la segunda ubicación como el final
+            endLocation = latLng;
+            mMap.addMarker(new MarkerOptions().position(endLocation).title("Final de la ruta"));
+            Toast.makeText(this, "Ruta finalizada", Toast.LENGTH_SHORT).show();
 
+            // Dibujar la ruta entre los puntos
+            drawRoute();
+        } else {
+            // Si ya hay una ruta completa, reiniciamos la selección de ruta
+            resetRoute();
+        }
+    }
+
+    private void drawRoute() {
+        if (startLocation != null && endLocation != null) {
+            // Crear una nueva línea (ruta) entre los dos puntos
+            if (currentRoute != null) {
+                currentRoute.remove(); // Eliminar la línea anterior si existe
+            }
+
+            PolylineOptions options = new PolylineOptions()
+                    .add(startLocation)
+                    .add(endLocation)
+                    .width(5)
+                    .color(0xFF0000FF); // Color azul
+
+            currentRoute = mMap.addPolyline(options); // Dibujar la línea en el mapa
+        }
+    }
+
+    private void resetRoute() {
+        // Reiniciar la ruta, eliminando las marcas y la línea
+        startLocation = null;
+        endLocation = null;
+        if (currentRoute != null) {
+            currentRoute.remove();
+        }
         mMap.clear();
-        LatLng chile = new LatLng(-30.5921655,-71.246963813);
-        mMap.addMarker(new MarkerOptions().position(chile).title(""));
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(chile));
+        Toast.makeText(this, "Ruta reiniciada", Toast.LENGTH_SHORT).show();
+    }
+
+    private void startLocationUpdates() {
+        // Crear la solicitud de ubicación
+        LocationRequest locationRequest = new LocationRequest();
+        locationRequest.setInterval(1000); // Actualización cada 1 segundo
+        locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY); // Prioridad alta
+
+        locationCallback = new LocationCallback() {
+            @Override
+            public void onLocationResult(LocationResult locationResult) {
+                if (locationResult != null) {
+                    for (android.location.Location location : locationResult.getLocations()) {
+                        if (location != null) {
+                            currentLocation = new LatLng(location.getLatitude(), location.getLongitude());
+                            if (mMap != null) {
+                                // Actualizar la cámara del mapa con la nueva ubicación
+                                mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLocation, 15));
+                                mMap.addMarker(new MarkerOptions().position(currentLocation).title("Ubicación actual"));
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Solicitar actualizaciones de ubicación
+        fusedLocationProviderClient.requestLocationUpdates(locationRequest, locationCallback, null);
+    }
+
+    private void changeMapType(String mapType) {
+        switch (mapType) {
+            case "Normal":
+                mMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
+                break;
+            case "Satelital":
+                mMap.setMapType(GoogleMap.MAP_TYPE_SATELLITE);
+                break;
+            case "Terreno":
+                mMap.setMapType(GoogleMap.MAP_TYPE_TERRAIN);
+                break;
+            default:
+                mMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
+                break;
+        }
     }
 
     @Override
-    public void onMapLongClick(@NonNull LatLng latLng) {
-        txtLatitud.setText(""+latLng.latitude);
-        txtLongitud.setText(""+latLng.longitude);
-
-        mMap.clear();
-        LatLng chile = new LatLng(-30.5921655,-71.246963813);
-        mMap.addMarker(new MarkerOptions().position(chile).title(""));
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(chile));
-    }
-
-    public void onRequestPermissionsResult(int requiesCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requiesCode, permissions, grantResults);
-        if(requiesCode == REQUEST_CODE_LOCATION_PERMISSION && grantResults.length > 0){
-            if(grantResults[0] == PackageManager.PERMISSION_GRANTED){
-                getCurrentLocation();
-            } else{
-                locationTv.setText("Permiso de ubicacion denegado");
-            }
+    protected void onStop() {
+        super.onStop();
+        // Detener las actualizaciones de ubicación al detener la actividad
+        if (fusedLocationProviderClient != null) {
+            fusedLocationProviderClient.removeLocationUpdates(locationCallback);
         }
     }
 }
